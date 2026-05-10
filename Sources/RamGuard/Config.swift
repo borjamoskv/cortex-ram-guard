@@ -28,6 +28,15 @@ struct Config {
     var intervalRed: TimeInterval = 15
     var cooldownSeconds: TimeInterval = 180
 
+    func interval(for level: PressureLevel) -> TimeInterval {
+        switch level {
+        case .green: return intervalGreen
+        case .yellow: return intervalYellow
+        case .orange: return intervalOrange
+        case .red: return intervalRed
+        }
+    }
+
     var trendWindow = 10
     var trendToleranceMB = 100
     var staleRendererMin = 90

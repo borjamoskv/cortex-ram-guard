@@ -30,20 +30,19 @@ final class Daemon {
         logger.log(.start, "v3.0-swift RAM=\(monitor.totalRAMGB)GB Y=\(monitor.yellowThreshold) O=\(monitor.orangeThreshold) R=\(monitor.redThreshold)")
 
         while true {
-            // Hot-reload config every 10 cycles
-            if cycle % 10 == 0 {
-                config = Config.load()
-                procMgr.loadWhitelist()
-            }
 
             let snap = monitor.snapshot()
             let level = monitor.pressureLevel(swapMB: snap.swapUsedMB)
+            logger.log(.level, "\(level.rawValue) swap=\(snap.swapUsedMB)MB")
             updateTrend(snap.swapUsedMB)
 
             // Snapshot every 30 cycles
             if cycle % 30 == 0 { takeSnapshot() }
 
             let swapBefore = snap.swapUsedMB
+
+            // Always enforce budgets and cull excess if configured
+            enforceBudgets()
 
             switch level {
             case .green:
@@ -52,7 +51,8 @@ final class Daemon {
                     spotlightThrottled = false
                 }
             case .yellow:
-                respondYellow()
+                // Yellow specific actions (none currently, just budgeting which is now global)
+                break
             case .orange:
                 respondOrange(swapMB: snap.swapUsedMB)
             case .red:
@@ -87,16 +87,28 @@ final class Daemon {
                 logger.rotate(compressDays: config.logCompressDays, deleteDays: config.logDeleteDays)
             }
 
+            // Periodic config reload (every 10 cycles)
+            if cycle % 10 == 0 {
+                reloadConfig()
+            }
+
             cycle += 1
-            Thread.sleep(forTimeInterval: level.interval)
+            
+            let sleepTime = config.interval(for: level)
+            Thread.sleep(forTimeInterval: sleepTime)
         }
+    }
+
+    private func reloadConfig() {
+        self.config = Config.load()
+        self.procMgr.loadWhitelist()
+        self.monitor.updateConfig(config)
     }
 
     // MARK: - Responses
 
-    private func respondYellow() {
-        logger.log(.level, "YELLOW")
-        var allProcs = procMgr.listProcesses()
+    private func enforceBudgets() {
+        let allProcs = procMgr.listProcesses()
         var groups = procMgr.appGroups(from: allProcs)
 
         for i in groups.indices {
@@ -109,10 +121,18 @@ final class Daemon {
             case "Python": maxCount = 999; budget = config.budgetPythonMB
             default: continue
             }
-            procMgr.cullExcess(group: &groups[i], maxCount: maxCount, allProcs: allProcs)
-            procMgr.enforceBudget(group: &groups[i], budgetMB: budget, allProcs: allProcs)
+            if maxCount < 999 {
+                procMgr.cullExcess(group: &groups[i], maxCount: maxCount, allProcs: allProcs)
+            }
+            if budget > 0 {
+                procMgr.enforceBudget(group: &groups[i], budgetMB: budget, allProcs: allProcs)
+            }
         }
-        procMgr.killStaleRenderers(allProcs: allProcs)
+    }
+
+    private func respondYellow() {
+        // Budgeting is now handled in enforceBudgets()
+        procMgr.killStaleRenderers(allProcs: procMgr.listProcesses())
     }
 
     private func respondOrange(swapMB: Int) {
@@ -158,7 +178,7 @@ final class Daemon {
 
         // Kill old renderers (>30min in RED)
         for proc in allProcs where proc.command.contains("Helper (Renderer)") && proc.elapsedSeconds > 1800 {
-            procMgr.safeKill(proc, reason: "red-renderer-old", allProcs: allProcs)
+            _ = procMgr.safeKill(proc, reason: "red-renderer-old", allProcs: allProcs)
         }
 
         procMgr.spotlightThrottle(false)
@@ -194,7 +214,7 @@ final class Daemon {
         let first = swapHistory.first!
         let last = swapHistory.last!
         let n = swapHistory.count
-        let elapsedMin = Int(Double(n - 1) * level.interval / 60)
+        let elapsedMin = Int(Double(n - 1) * config.interval(for: level) / 60)
         guard elapsedMin > 0 else { return -1 }
         let ratePerMin = (last - first) / elapsedMin
         guard ratePerMin > 0 else { return -1 }

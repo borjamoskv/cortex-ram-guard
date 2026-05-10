@@ -160,7 +160,7 @@ final class ProcessManager {
         // Kill oldest first (lowest PID)
         let sorted = group.processes.sorted { $0.pid < $1.pid }
         for proc in sorted.prefix(excess) {
-            safeKill(proc, reason: "cull-\(group.label)", allProcs: allProcs)
+            _ = safeKill(proc, reason: "cull-\(group.label)", allProcs: allProcs)
         }
     }
 
@@ -181,7 +181,7 @@ final class ProcessManager {
 
     func killHot(group: AppGroup, cpuThreshold: Double, allProcs: [ProcInfo]) {
         for proc in group.processes where proc.cpuPercent >= cpuThreshold {
-            safeKill(proc, reason: "\(group.label)-cpu-\(Int(proc.cpuPercent))%", allProcs: allProcs)
+            _ = safeKill(proc, reason: "\(group.label)-cpu-\(Int(proc.cpuPercent))%", allProcs: allProcs)
         }
     }
 
@@ -191,7 +191,7 @@ final class ProcessManager {
             guard proc.command.contains("Helper (Renderer)"),
                   proc.elapsedSeconds >= threshold,
                   proc.cpuPercent < 5.0 else { continue }
-            safeKill(proc, reason: "stale-renderer-\(proc.elapsedSeconds/60)min", allProcs: allProcs)
+            _ = safeKill(proc, reason: "stale-renderer-\(proc.elapsedSeconds/60)min", allProcs: allProcs)
         }
     }
 
@@ -199,7 +199,7 @@ final class ProcessManager {
         for proc in allProcs {
             guard proc.command.contains("Comet"),
                   proc.command.contains("--remote-debugging-port") else { continue }
-            safeKill(proc, reason: "comet-debug", allProcs: allProcs)
+            _ = safeKill(proc, reason: "comet-debug", allProcs: allProcs)
         }
     }
 

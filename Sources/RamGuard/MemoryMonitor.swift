@@ -40,15 +40,6 @@ enum PressureLevel: String, Comparable {
         }
     }
 
-    var interval: TimeInterval {
-        switch self {
-        case .green: return 120
-        case .yellow: return 60
-        case .orange: return 30
-        case .red: return 15
-        }
-    }
-
     static func < (lhs: PressureLevel, rhs: PressureLevel) -> Bool {
         let order: [PressureLevel] = [.green, .yellow, .orange, .red]
         return order.firstIndex(of: lhs)! < order.firstIndex(of: rhs)!
@@ -56,8 +47,8 @@ enum PressureLevel: String, Comparable {
 }
 
 final class MemoryMonitor {
-    let config: Config
-    let totalRAM: UInt64
+    private var config: Config
+    private let totalRAM: UInt64
 
     init(config: Config) {
         self.config = config
@@ -65,6 +56,10 @@ final class MemoryMonitor {
         var ram: UInt64 = 0
         sysctlbyname("hw.memsize", &ram, &size, nil, 0)
         self.totalRAM = ram
+    }
+
+    func updateConfig(_ newConfig: Config) {
+        self.config = newConfig
     }
 
     var totalRAMGB: Int { Int(totalRAM / (1024 * 1024 * 1024)) }
@@ -79,7 +74,7 @@ final class MemoryMonitor {
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
         let host = mach_host_self()
 
-        withUnsafeMutablePointer(to: &stats) { ptr in
+        _ = withUnsafeMutablePointer(to: &stats) { ptr in
             ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
                 host_statistics64(host, HOST_VM_INFO64, intPtr, &count)
             }
