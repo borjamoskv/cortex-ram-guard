@@ -1,10 +1,10 @@
 <![CDATA[# ⚡ CORTEX RAM GUARD
 
-**Sovereign macOS memory pressure daemon.**
+**Sovereign macOS memory pressure daemon — native Swift, zero runtime.**
 
-A lightweight, zero-dependency watchdog that prevents macOS swap death by enforcing graduated memory pressure response, per-app RSS budgets, and predictive swap exhaustion alerts.
+A compiled, zero-dependency watchdog that prevents macOS swap death by enforcing graduated memory pressure response, per-app RSS budgets, and predictive swap exhaustion alerts.
 
-Built for power users running heavy IDE + browser + agent workloads on memory-constrained machines.
+Built for power users running heavy IDE + browser + agent workloads.
 
 ---
 
@@ -12,7 +12,7 @@ Built for power users running heavy IDE + browser + agent workloads on memory-co
 
 macOS handles memory pressure by swapping aggressively to disk. On machines with 16-18GB RAM running Electron IDEs, multiple browser instances, and background agents, swap can silently balloon to 30GB+, grinding the system to a halt.
 
-By the time you notice, `WindowServer` is at 30fps and every click takes 2 seconds.
+By the time you notice, `WindowServer` is at 30fps.
 
 **RAM Guard fixes this by acting before you notice.**
 
@@ -33,58 +33,44 @@ By the time you notice, `WindowServer` is at 30fps and every click takes 2 secon
 └─────────────────────────────────────────────────┘
 ```
 
-### Graduated Response
+### Features
 
-| Level | Trigger | Actions |
-|-------|---------|---------|
-| 🟢 **GREEN** | Swap < threshold | Monitor only. Restore Spotlight if throttled. |
-| 🟡 **YELLOW** | Swap > 0.5× RAM | Cull excess processes. Kill stale renderers. Enforce RSS budgets. |
-| 🟠 **ORANGE** | Swap > 0.8× RAM | Kill hot CPU processes. Purge disk cache. macOS notification. |
-| 🔴 **RED** | Swap > 1.2× RAM | Emergency purge. Halve all RSS budgets. Throttle Spotlight. |
-
-### Key Features
-
-- **Per-app RSS budgets** — Set max memory per app group (Node, Python, Renderer, Comet). Largest processes killed first when budget exceeded.
-- **Predictive alerts** — Linear extrapolation warns you N minutes before RED.
-- **Memory leak detection** — Flags monotonically increasing swap across sample window.
-- **Process ancestry logging** — Every kill logs `PID(cmd)←PPID(parent)` chain for forensics.
-- **Self-health monitoring** — Daemon auto-restarts if its own RSS exceeds limit.
-- **Editable whitelist** — Never kills processes matching patterns in `whitelist.conf`.
-- **Hot-reload config** — Changes to `config.conf` picked up without restart.
-- **Batch notifications** — Groups alerts to avoid notification spam.
-- **Process snapshots** — Periodic TSV dumps of top-30 processes for trend analysis.
-- **Log rotation** — Auto-compresses old logs, deletes after 14 days.
+| Feature | Description |
+|---------|-------------|
+| **Native ARM64 binary** | 1.6 MB compiled. No Python, no Node, no shell runtime. |
+| **Mach VM APIs** | `host_statistics64` for page-level memory stats. `sysctl` for swap. |
+| **Per-app RSS budgets** | Set max memory per app group (Node, Python, Renderer, Comet). |
+| **Predictive alerts** | Linear extrapolation warns you N minutes before RED. |
+| **Memory leak detection** | Flags monotonically increasing swap across sample window. |
+| **Process ancestry logging** | Every kill logs `PID(cmd)←PPID(parent)` chain. |
+| **Self-health monitoring** | Auto-alerts if its own RSS exceeds limit. |
+| **Editable whitelist** | Never kills processes matching patterns in `whitelist.conf`. |
+| **Hot-reload config** | Changes to `config.conf` picked up without restart. |
+| **Batched notifications** | Groups macOS notifications to avoid spam. |
+| **Process snapshots** | Periodic TSV dumps of top-30 processes. |
+| **Log rotation** | Auto-compresses old logs, deletes after 14 days. |
 
 ## Installation
 
+### Homebrew (recommended)
+
 ```bash
-# Clone
+brew install borjamoskv/tap/ramguard
+```
+
+### From source
+
+```bash
 git clone https://github.com/borjamoskv/cortex-ram-guard.git
 cd cortex-ram-guard
-
-# Install (creates launchd agent + starts daemon)
-./cortex-ram-guard.sh install
+make install
 ```
 
-That's it. The daemon survives reboots and auto-restarts on crash.
+Requires Swift 5.9+ (included with Xcode 15+).
 
-### Manual install
+### Legacy shell script
 
-```bash
-# Copy files
-mkdir -p ~/.cortex/ram-guard
-cp cortex-ram-guard.sh config.conf whitelist.conf ~/.cortex/ram-guard/
-chmod +x ~/.cortex/ram-guard/cortex-ram-guard.sh
-
-# Install daemon
-~/.cortex/ram-guard/cortex-ram-guard.sh install
-```
-
-### Optional: CLI alias
-
-```bash
-ln -sf ~/.cortex/ram-guard/cortex-ram-guard.sh ~/bin/ramguard
-```
+The original `cortex-ram-guard.sh` is preserved in the `legacy/` directory for systems where compilation isn't available.
 
 ## Usage
 
@@ -93,8 +79,7 @@ ramguard status      # Current memory state + per-app RSS
 ramguard purge       # Manual immediate purge
 ramguard logs        # Tail today's log
 ramguard stats       # 7-day kill/purge history
-ramguard snapshot    # Forensic process dump
-ramguard install     # Install/restart daemon
+ramguard install     # Install/restart launchd daemon
 ramguard uninstall   # Stop and unload daemon
 ```
 
@@ -102,10 +87,11 @@ ramguard uninstall   # Stop and unload daemon
 
 ```
 ═══════════════════════════════════════════════
-  CORTEX RAM GUARD v3.0
+  CORTEX RAM GUARD v3.0 (Swift)
 ═══════════════════════════════════════════════
   RAM:       18GB  │  Free: 75MB
   Swap:      3570MB  │  🟢 GREEN
+  Compressed:2100MB  │  Wired: 4200MB
   Thresholds: Y=9000 O=14400 R=21600
 ───────────────────────────────────────────────
   Comet            3 procs    150MB RSS  (budget 1500MB)
@@ -123,12 +109,12 @@ ramguard uninstall   # Stop and unload daemon
 Edit `~/.cortex/ram-guard/config.conf`:
 
 ```bash
-# Pressure thresholds (multiplier × RAM_GB in MB)
-YELLOW_MULT=500     # YELLOW at RAM×500 MB
-ORANGE_MULT=800     # ORANGE at RAM×800 MB
-RED_MULT=1200       # RED at RAM×1200 MB
+# Pressure thresholds (multiplier × RAM_GB → threshold in MB)
+YELLOW_MULT=500
+ORANGE_MULT=800
+RED_MULT=1200
 
-# Per-app RSS budgets (MB) — 0 to disable
+# Per-app RSS budgets (MB)
 BUDGET_COMET_MB=1500
 BUDGET_NODE_MB=2000
 BUDGET_RENDERER_MB=1800
@@ -146,49 +132,62 @@ MAX_RENDERER_PROCS=12
 PREDICT_ALERT_MIN=15
 ```
 
-Changes are picked up automatically (no restart needed).
+Changes are picked up automatically — no restart needed.
 
-## Whitelist
-
-Edit `~/.cortex/ram-guard/whitelist.conf` to protect processes from being killed:
+## Architecture
 
 ```
-# Main app — never kill
-MyApp.app/Contents/MacOS/MyApp
-
-# System daemons
-WindowServer
-coreaudiod
+Sources/RamGuard/
+├── CLI.swift              # ArgumentParser subcommands
+├── Config.swift           # Hot-reloadable config parser
+├── Daemon.swift           # Main loop + graduated response
+├── Logger.swift           # Structured logging + rotation
+├── MemoryMonitor.swift    # Mach VM + sysctl memory APIs
+└── ProcessManager.swift   # Process enum, ancestry, kill
 ```
+
+Key design decisions:
+- **No shell-out for memory stats.** Direct `host_statistics64` and `sysctl` calls.
+- **Process enumeration via `ps aux`** for reliable cross-version compatibility, with `kinfo_proc` for PPID ancestry.
+- **Foundation-only.** No AppKit, no SwiftUI. Runs headless as a launchd agent.
+- **Config backward-compatible** with the shell version's `config.conf` format.
+
+## Graduated Response
+
+| Level | Trigger | Actions |
+|-------|---------|---------|
+| 🟢 **GREEN** | Swap < threshold | Monitor only. Restore Spotlight if throttled. |
+| 🟡 **YELLOW** | Swap > 0.5× RAM | Cull excess processes. Kill stale renderers. Enforce RSS budgets. |
+| 🟠 **ORANGE** | Swap > 0.8× RAM | Kill hot CPU processes. Purge disk cache. macOS notification. |
+| 🔴 **RED** | Swap > 1.2× RAM | Emergency purge. Lower CPU kill thresholds. Throttle Spotlight. |
 
 ## Files
 
 ```
 ~/.cortex/ram-guard/
-├── cortex-ram-guard.sh    # Main daemon + CLI
 ├── config.conf            # Tunable configuration
 ├── whitelist.conf         # Protected processes
 ├── guard.pid              # Daemon PID
 ├── stats-YYYY-MM-DD.json  # Daily statistics
 ├── logs/
-│   ├── ram-guard-YYYY-MM-DD.log
-│   └── stdout.log
+│   └── ram-guard-YYYY-MM-DD.log
 └── snapshots/
     └── snap-HHMM.tsv      # Process snapshots
 ```
 
 ## Requirements
 
-- macOS (tested on Sonoma/Sequoia, Apple Silicon)
-- zsh (default macOS shell)
-- No dependencies. No brew packages. No Python runtime (except for stats display).
+- macOS 13+ (Ventura or later)
+- Apple Silicon or Intel
+- Swift 5.9+ (only for building from source)
+- No runtime dependencies
 
 ## Uninstall
 
 ```bash
 ramguard uninstall
+# or: brew uninstall ramguard
 rm -rf ~/.cortex/ram-guard
-rm ~/Library/LaunchAgents/com.cortex.ram-guard.plist
 ```
 
 ## License
