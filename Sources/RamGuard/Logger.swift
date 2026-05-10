@@ -46,7 +46,10 @@ final class Logger {
             openLogFile()
         }
         let line = "[\(dateFormatter.string(from: Date()))] [\(level.rawValue)] \(message)\n"
-        fileHandle?.write(line.data(using: .utf8) ?? Data())
+        if let data = line.data(using: .utf8) {
+            fileHandle?.write(data)
+            try? fileHandle?.synchronize()
+        }
     }
 
     func rotate(compressDays: Int, deleteDays: Int) {
@@ -77,7 +80,9 @@ final class Logger {
     private func openLogFile() {
         fileHandle?.closeFile()
         let path = logDir + "/ram-guard-\(currentDate).log"
-        FileManager.default.createFile(atPath: path, contents: nil)
+        if !FileManager.default.fileExists(atPath: path) {
+            FileManager.default.createFile(atPath: path, contents: nil)
+        }
         fileHandle = FileHandle(forWritingAtPath: path)
         fileHandle?.seekToEndOfFile()
     }
